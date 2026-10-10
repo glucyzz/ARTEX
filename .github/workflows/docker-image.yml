@@ -14,11 +14,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 将包含大写的仓库名转换为全小写
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24' # 或与 go.mod 一致的版本
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 1. 编译前端静态页面
+      - name: Build Web UI
+        run: |
+          mkdir -p server/webui/dist
+          cd web
+          npm ci
+          npm run build:static
+          cp -r out/* ../server/webui/dist/
+          cd ..
+
+      # 2. 编译 Go 二进制到 Dockerfile 期望的路径 dist/amd64/artex
+      - name: Build Go binary
+        run: |
+          mkdir -p dist/amd64
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/amd64/artex ./server
+
+      # 3. 准备镜像名称（全小写）
       - name: Lowercase image name
         run: |
           echo "IMAGE_NAME=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
 
+      # 4. 登录 GHCR
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -26,10 +53,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # 5. 执行 Docker 构建并推送
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          # 使用转小写后的环境变量
           tags: ${{ env.IMAGE_NAME }}:latest
